@@ -1,0 +1,65 @@
+// 步骤1: 计算所有社群的中断率，并找出目标社群ID
+MATCH (p:Project)
+WHERE p.communityId IS NOT NULL AND p.结果 IS NOT NULL
+WITH p.communityId AS community,
+count(p) AS totalCount,
+count(CASE WHEN TRIM(p.结果) IN ['取消', '中断，三个月以内', '中断，三个月以上'] THEN p END) AS disruptedCount
+WHERE totalCount > 0
+WITH community, toFloat(disruptedCount) / totalCount AS disruptionRate
+ORDER BY disruptionRate DESC
+
+// 将所有社群ID按中断率排名后收集起来
+WITH collect(community) as allRankedCommunities
+
+// 选出中断率最高的前10名和最低的后10名
+WITH allRankedCommunities[..10] + allRankedCommunities[-10..] AS targetCommunityIds
+
+// 步骤2: 遍历每一个目标社群ID，并进行6项画像分析
+UNWIND targetCommunityIds AS communityId
+
+// 使用旧的、但兼容性好的CALL { WITH ... }语法
+CALL {
+WITH communityId
+MATCH (p:Participant) WHERE p.communityId = communityId
+WITH p ORDER BY COUNT { (p)--() } DESC LIMIT 10
+RETURN collect(p.参与方名称 + ' (' + p.参与方类型 + ')') AS topParticipants
+}
+CALL {
+WITH communityId
+MATCH (p:Project)-[:LOCATED_IN]->(c:Country) WHERE p.communityId = communityId
+WITH c, count(p) AS projectCount ORDER BY projectCount DESC LIMIT 10
+RETURN collect(c.项目东道国名称 + ' (' + projectCount + ')') AS topLocations
+}
+CALL {
+WITH communityId
+MATCH (p:Project) WHERE p.communityId = communityId AND p.项目类别 IS NOT NULL
+WITH p.项目类别 AS category, count(p) AS projectCount ORDER BY projectCount DESC LIMIT 5
+RETURN collect(category + ' (' + projectCount + ')') AS topCategories
+}
+CALL {
+WITH communityId
+MATCH (p:Project)-[:AFFECTED_BY_SUBFACTOR]->(sf:SubFactor)<-[:HAS_SUBFACTOR]-(f:Factor) WHERE p.communityId = communityId
+WITH f, count(DISTINCT p) AS projectCount ORDER BY projectCount DESC LIMIT 10
+RETURN collect(f.影响因素 + ' (' + projectCount + ')') AS topFactors
+}
+CALL {
+WITH communityId
+MATCH (p:Project)-[:AFFECTED_BY_SUBFACTOR]->(sf:SubFactor) WHERE p.communityId = communityId
+WITH sf, count(p) AS projectCount ORDER BY projectCount DESC LIMIT 10
+RETURN collect(sf.影响子因素 + ' (' + projectCount + ')') AS topSubFactors
+}
+CALL {
+WITH communityId
+MATCH (p:Project)-[:AFFECTED_BY_SUBFACTOR]->(sf:SubFactor)<-[:HAS_SUBFACTOR]-(f:Factor)-[:LEADS_TO_STRATEGY]->(s:Strategy) WHERE p.communityId = communityId
+WITH s, count(s) AS frequency ORDER BY frequency DESC LIMIT 10
+RETURN collect(s.策略 + ' (' + frequency + ')') AS topStrategies
+}
+
+// 步骤3: 将所有结果汇总输出
+RETURN communityId AS `社群ID`,
+       topParticipants AS `核心参与方 (Top 10)`,
+       topLocations AS `地理分布 (Top 10)`,
+       topCategories AS `项目类别 (Top 5)`,
+       topFactors AS `主要影响因素 (Top 10)`,
+       topSubFactors AS `核心影响子因素 (Top 10)`,
+       topStrategies AS `常用应对策略 (Top 10)`;

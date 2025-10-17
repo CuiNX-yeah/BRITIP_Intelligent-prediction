@@ -1,0 +1,24 @@
+//运行Louvain社群发现算法，并将社群ID写回数据库
+CALL gds.louvain.write('fullGraph', {
+    writeProperty: 'communityId'
+})
+// 按“中断率”排序，直接筛选社群
+MATCH (p:Project)
+WHERE p.communityId IS NOT NULL AND p.`结果` IS NOT NULL
+
+WITH p.communityId AS community, 
+     CASE 
+       WHEN p.`结果` IN ['取消', '中断，三个月以内', '中断，三个月以上'] THEN 1 
+       ELSE 0 
+     END AS isDisrupted,
+     1 AS isProject
+
+WITH community, 
+     sum(isDisrupted) AS disruptedCount, 
+     sum(isProject) AS totalCount
+WHERE totalCount > 0
+RETURN community, 
+       disruptedCount AS `中断项目数`, 
+       totalCount AS `有明确结果的项目总数`, 
+       (toFloat(disruptedCount) / totalCount) AS `中断率`
+ORDER BY `中断率` DESC, `有明确结果的项目总数` DESC // <-- 已修正：移除了别名中多余的连字符“-”

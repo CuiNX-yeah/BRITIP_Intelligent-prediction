@@ -1,0 +1,144 @@
+// 第0步：清空数据库
+MATCH (n) DETACH DELETE n;
+// -----------------------------------------------------------------
+CREATE CONSTRAINT project_id_unique IF NOT
+EXISTS FOR (n:Project) REQUIRE n.`项目ID` IS UNIQUE;
+CREATE CONSTRAINT participant_name_unique
+IF NOT EXISTS FOR (n:Participant) REQUIRE n.`参与方名称` IS
+UNIQUE;
+CREATE CONSTRAINT country_name_unique IF
+NOT EXISTS FOR (n:Country) REQUIRE n.`项目东道国名称` IS
+UNIQUE;
+CREATE CONSTRAINT strategy_id_unique IF NOT
+EXISTS FOR (n:Strategy) REQUIRE n.`策略ID` IS UNIQUE;
+CREATE CONSTRAINT factor_id_unique IF NOT
+EXISTS FOR (n:Factor) REQUIRE n.`影响因素ID` IS UNIQUE;
+CREATE CONSTRAINT subfactor_name_unique IF
+NOT EXISTS FOR (n:SubFactor) REQUIRE n.`影响子因素` IS
+UNIQUE;
+
+// -----------------------------------------------------------------
+// 第2步：导入所有节点 (已二次调整顺序)
+// -----------------------------------------------------------------
+
+// 2.1 导入项目节点 (已更新)
+LOAD CSV WITH HEADERS FROM 'file:///项目.csv' AS row
+CREATE (:Project {
+    `项目ID`: row.`项目ID`,
+    `项目名称`: row.`项目名称`,
+    `项目类别`: row.`项目类别`,
+    `签约时间`: row.`签约时间`,
+    `项目规模`: row.`项目规模`,
+    `中断发生阶段`: row.`中断发生阶段`,
+    `结果`: row.`结果（三个月以内，三个月以上，取消）`
+});
+
+// 2.2 导入策略节点
+LOAD CSV WITH HEADERS FROM 'file:///策略.csv' AS row
+CREATE (:Strategy {
+    `策略ID`: row.`策略ID`,
+    `策略`: row.`策略`
+});
+
+// 2.3 导入影响因素节点
+LOAD CSV WITH HEADERS FROM 'file:///影响因素.csv' AS row
+CREATE (:Factor {
+    `影响因素ID`: row.`影响因素ID`,
+    `影响因素`: row.`影响因素`
+});
+
+// 2.4 导入影响子因素节点
+LOAD CSV WITH HEADERS FROM 'file:///影响子因素.csv' AS row
+CREATE (:SubFactor {
+    `影响子因素`: row.`影响子因素`
+});
+
+// 2.5 导入国家节点
+LOAD CSV WITH HEADERS FROM 'file:///国家.csv' AS row
+CREATE (:Country {
+    `项目东道国名称`: row.`项目东道国名称`,
+    `项目东道国所属地区`: row.`项目东道国所属地区`
+});
+
+// 2.6 导入参与方节点
+LOAD CSV WITH HEADERS FROM 'file:///项目参与方.csv' AS row
+CREATE (:Participant {
+    `参与方名称`: row.`参与方名称`,
+    `参与方类型`: row.`参与方类型`
+});
+
+// -----------------------------------------------------------------
+// 第3步：导入所有关系
+// -----------------------------------------------------------------
+
+// 3.1 关系：项目位于国家
+LOAD CSV WITH HEADERS FROM
+'file:///rel_project_country.csv' AS row
+MATCH (p:Project {`项目ID`: row.`项目ID`})
+MATCH (c:Country {`项目东道国名称`: row.`项目东道国名称`})
+MERGE (p)-[:LOCATED_IN]->(c);
+
+// 3.2 关系：参与方资助项目
+LOAD CSV WITH HEADERS FROM 'file:///rel_participant_funds_project.csv'
+AS row
+MATCH (p:Participant {`参与方名称`: row.`参与方名称`})
+MATCH (proj:Project {`项目ID`: row.`项目ID`})
+MERGE (p)-[:FUNDS]->(proj);
+
+// 3.3 关系：参与方是项目受益人
+LOAD CSV WITH HEADERS FROM
+'file:///rel_participant_receives_project.csv' AS row
+MATCH (p:Participant {`参与方名称`: row.`参与方名称`})
+MATCH (proj:Project {`项目ID`: row.`项目ID`})
+MERGE
+(p)-[:RECEIVES_FUNDING_FOR]->(proj);
+
+// 3.4 关系：参与方执行项目
+LOAD CSV WITH HEADERS FROM
+'file:///rel_participant_implements_project.csv' AS row
+MATCH (p:Participant {`参与方名称`: row.`参与方名称`})
+MATCH (proj:Project {`项目ID`: row.`项目ID`})
+MERGE (p)-[:IMPLEMENTS]->(proj);
+
+// 3.5 关系：因素导致策略 (旧3.6)
+LOAD CSV WITH HEADERS FROM
+'file:///rel_factor_strategy.csv' AS row
+MATCH (f:Factor {`影响因素ID`: row.`影响因素ID`})
+MATCH (s:Strategy {`策略ID`: row.`策略ID`})
+MERGE (f)-[:LEADS_TO_STRATEGY]->(s);
+
+// 3.6 关系：因素包含子因素 (旧3.7)
+LOAD CSV WITH HEADERS FROM
+'file:///rel_factor_subfactor.csv' AS row
+MATCH (f:Factor {`影响因素ID`: row.`影响因素ID`})
+MATCH (sf:SubFactor {`影响子因素`: row.`影响子因素`})
+MERGE (f)-[:HAS_SUBFACTOR]->(sf);
+
+// 3.7 关系：因素促使参与者(中断发起者) (旧3.8，已修正)
+LOAD CSV WITH HEADERS FROM
+'file:///rel_factor_motivates_participant.csv' AS row
+WITH row
+WHERE row.`参与方名称`
+<> '-'
+MATCH (f:Factor {`影响因素ID`: row.`影响因素ID`})
+MATCH (p:Participant {`参与方名称`: row.`参与方名称`})
+MERGE (f)-[:MOTIVATES]->(p);
+
+// 3.8 关系：参与者(中断发起者)发起了对项目的中断 (旧3.9，已修正)
+LOAD CSV WITH HEADERS FROM
+'file:///rel_participant_disrupts_project.csv' AS row
+WITH row
+WHERE row.`参与方名称`
+<> '-'
+MATCH (p:Participant {`参与方名称`: row.`参与方名称`})
+MATCH (proj:Project {`项目ID`: row.`项目ID`})
+MERGE
+(p)-[:INITIATED_DISRUPTION_OF]->(proj);
+
+// 3.9 关系：项目受到子因素影响
+// (全新、精确的关系)  <-- 此处已修正
+LOAD CSV WITH HEADERS FROM
+'file:///rel_project_subfactor.csv' AS row
+MATCH (p:Project {`项目ID`: row.`项目ID`})
+MATCH (sf:SubFactor {`影响子因素`: row.`影响子因素`})
+MERGE (p)-[:AFFECTED_BY_SUBFACTOR]->(sf);
