@@ -1,0 +1,12 @@
+MATCH (part:Participant)-[:FUNDS|:IMPLEMENTS|:RECEIVES_FUNDING_FOR]->(p:Project)
+WHERE p.`结果` IS NOT NULL
+WITH part, p,
+     CASE
+       WHEN p.`结果` IN ['取消','中断，三个月以内','中断，三个月以上'] THEN 1
+       ELSE 0
+     END AS isDisrupted
+WITH part,
+     count(DISTINCT CASE WHEN isDisrupted = 1 THEN p END) AS disruptedCount,
+     count(DISTINCT CASE WHEN isDisrupted = 0 THEN p END) AS normalCount
+WHERE disruptedCount > 0 AND normalCount > 0
+RETURN count(DISTINCT part) AS BridgeParticipants;

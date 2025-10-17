@@ -1,0 +1,4 @@
+// 识别孤立项目节点
+MATCH (p:Project)
+WHERE NOT (p)-[:FUNDS|IMPLEMENTS|RECEIVES_FUNDING_FOR]-()
+RETURN count(p) as IsolatedProjects

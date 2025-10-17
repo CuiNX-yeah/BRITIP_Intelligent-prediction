@@ -1,0 +1,5 @@
+// 统计各类型节点数量
+MATCH (n)
+UNWIND labels(n) AS label
+RETURN label, count(*) AS count
+ORDER BY count DESC;

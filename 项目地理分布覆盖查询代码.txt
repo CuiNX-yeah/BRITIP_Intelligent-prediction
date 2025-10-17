@@ -1,0 +1,6 @@
+// 检查项目地理分布覆盖
+MATCH (p:Project)-[:LOCATED_IN]->(c:Country)
+RETURN c.`项目东道国所属地区` AS Region,
+       count(DISTINCT c.`项目东道国名称`) AS Countries,
+       count(p) AS Projects
+ORDER BY Projects DESC;

@@ -1,0 +1,28 @@
+MATCH (part:Participant)-[:FUNDS|:IMPLEMENTS|:RECEIVES_FUNDING_FOR]->(p:Project)
+OPTIONAL MATCH (p)-[:LOCATED_IN]->(c:Country)
+WITH part.`参与方名称` AS name, part.`参与方类型` AS type, p, c
+WITH name,
+     collect(DISTINCT type) AS 类型列表,
+     collect(DISTINCT p)    AS projects,
+     collect(DISTINCT CASE WHEN p.`结果` IN ['取消','中断，三个月以内','中断，三个月以上'] THEN p END) AS disruptedPs,
+     collect(DISTINCT CASE WHEN NOT p.`结果` IN ['取消','中断，三个月以内','中断，三个月以上'] THEN p END) AS normalPs,
+     collect(DISTINCT c.`项目东道国名称`)     AS CountryNames,
+     collect(DISTINCT c.`项目东道国所属地区`) AS Regions
+WITH name, 类型列表, size(类型列表) AS 类型数,
+     size(projects)    AS ProjectCount,
+     size(disruptedPs) AS disruptedCount,
+     size(normalPs)    AS normalCount,
+     CountryNames, Regions
+WHERE ProjectCount >= 10 AND disruptedCount > 0 AND normalCount > 0
+RETURN name AS 参与方,
+       类型数, 类型列表,
+       ProjectCount AS 参与项目数,
+       disruptedCount AS 中断项目数,
+       normalCount    AS 未中断项目数,
+       size(CountryNames) AS 覆盖国家数,
+       CountryNames       AS 国家列表,
+       size(Regions)      AS 覆盖地区数,
+       Regions            AS 地区列表
+ORDER BY 参与项目数 DESC
+LIMIT 50;
+

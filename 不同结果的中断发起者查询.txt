@@ -1,0 +1,41 @@
+MATCH (u:Participant)-[:INITIATED_DISRUPTION_OF]->(p:Project)
+WHERE p.`结果` IN ['取消','中断，三个月以上','中断，三个月以内']
+
+WITH p,
+     CASE
+       WHEN p.`结果` = '取消' THEN '取消'
+       WHEN p.`结果` CONTAINS '三个月以上' THEN '中断>3月'
+       WHEN p.`结果` CONTAINS '三个月以内' THEN '中断≤3月'
+       ELSE '未标注'
+     END AS outcome,
+     coalesce(u.`参与方名称`,'') AS nm
+
+WITH p, outcome,
+     CASE WHEN nm = '' THEN ['未标注']
+          WHEN nm CONTAINS ';' THEN [x IN split(replace(replace(nm,'；',';'), '，中断发起者',''), ';') | trim(x)]
+          ELSE [trim(replace(nm,'，中断发起者',''))]
+     END AS toks
+UNWIND toks AS tok
+
+WITH p, outcome,
+     CASE
+       WHEN tok CONTAINS '政府' THEN 'U1-政府'
+       WHEN tok CONTAINS '承包商' THEN 'U2-承包商'
+       WHEN tok CONTAINS '本地社区' OR tok CONTAINS '当地社区' THEN 'U3-本地社区'
+       WHEN tok CONTAINS '投资者' THEN 'U4-投资者'
+       WHEN tok CONTAINS '国际力量' THEN 'U5-国际力量'
+       WHEN tok CONTAINS '外部因素' THEN 'U6-外部因素'
+       WHEN tok CONTAINS '环境' THEN 'U7-环境'
+       ELSE '未标注'
+     END AS initiator
+
+WITH p, outcome, collect(DISTINCT initiator) AS inits
+WITH outcome, collect({pid:id(p), inits:inits, k:size(inits)}) AS rows, count(DISTINCT p) AS total_outcome
+UNWIND rows AS r
+UNWIND r.inits AS initiator
+WITH outcome, initiator, total_outcome, 1.0/r.k AS w
+WITH outcome, initiator, total_outcome, sum(w) AS 加权项目数
+RETURN outcome, initiator,
+       round(加权项目数, 3) AS 加权项目数,
+       round(100.0 * 加权项目数 / total_outcome, 1) AS 百分比_均分
+ORDER BY outcome, 加权项目数 DESC;
